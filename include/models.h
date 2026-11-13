@@ -4,15 +4,17 @@
 #include <iostream>
 #include <string>
 #include <fstream>
-#include <list>
 
-// Espacio de nombres para serializar std::string en formato binario (.dat) sin corromper memoria
+// ==========================================
+// SERIALIZADOR BINARIO (Protección de RAM)
+// ==========================================
 namespace SerializadorBinario {
     inline void escribirString(std::ofstream& out, const std::string& str) {
         size_t tam = str.size();
         out.write(reinterpret_cast<const char*>(&tam), sizeof(tam));
         out.write(str.c_str(), tam);
     }
+    
     inline void leerString(std::ifstream& in, std::string& str) {
         size_t tam = 0;
         in.read(reinterpret_cast<char*>(&tam), sizeof(tam));
@@ -22,116 +24,170 @@ namespace SerializadorBinario {
 }
 
 // ==========================================
-// 1. EVENTO MEDICO (Lista Enlazada)
+// 1. EVENTO MEDICO
 // ==========================================
-class EventoMedico {
-private:
-    int id_evento;
-    std::string fecha_lesion;
-    std::string tipo_lesion;
-    std::string zona_afectada;
-    int dias_baja;
+struct EventoMedico {
+    std::string fecha;
+    std::string tipo; 
+    std::string descripcion;
     bool alta_medica;
 
+    EventoMedico(std::string f = "", std::string t = "", std::string d = "", bool alta = true) 
+        : fecha(f), tipo(t), descripcion(d), alta_medica(alta) {}
+};
+
+// ==========================================
+// 2. LISTA ENLAZADA ARTESANAL (Reemplazo Temporal)
+// ==========================================
+struct NodoMedico {
+    EventoMedico evento;
+    NodoMedico* siguiente;
+    NodoMedico(const EventoMedico& e) : evento(e), siguiente(nullptr) {}
+};
+
+class ListaMedica {
+private:
+    NodoMedico* cabeza;
 public:
-    EventoMedico() : id_evento(0), dias_baja(0), alta_medica(true) {}
-    EventoMedico(int id, const std::string& fecha, const std::string& tipo, const std::string& zona, int dias)
-        : id_evento(id), fecha_lesion(fecha), tipo_lesion(tipo), zona_afectada(zona), dias_baja(dias), alta_medica(false) {}
+    ListaMedica() : cabeza(nullptr) {}
+    ~ListaMedica() { limpiar(); }
 
-    bool tieneAltaMedica() const { return alta_medica; }
-    const std::string& getTipoLesion() const { return tipo_lesion; }
+    ListaMedica(const ListaMedica& otra) : cabeza(nullptr) {
+        if (!otra.cabeza) return;
+        cabeza = new NodoMedico(otra.cabeza->evento);
+        NodoMedico* actual = cabeza;
+        NodoMedico* actualOtra = otra.cabeza->siguiente;
+        while (actualOtra) {
+            actual->siguiente = new NodoMedico(actualOtra->evento);
+            actual = actual->siguiente;
+            actualOtra = actualOtra->siguiente;
+        }
+    }
 
-    void guardarEnBinario(std::ofstream& out) const {
-        out.write(reinterpret_cast<const char*>(&id_evento), sizeof(id_evento));
-        SerializadorBinario::escribirString(out, fecha_lesion);
-        SerializadorBinario::escribirString(out, tipo_lesion);
-        SerializadorBinario::escribirString(out, zona_afectada);
-        out.write(reinterpret_cast<const char*>(&dias_baja), sizeof(dias_baja));
-        out.write(reinterpret_cast<const char*>(&alta_medica), sizeof(alta_medica));
+    ListaMedica& operator=(const ListaMedica& otra) {
+        if (this != &otra) {
+            limpiar();
+            ListaMedica temp(otra);
+            cabeza = temp.cabeza;
+            temp.cabeza = nullptr;
+        }
+        return *this;
+    }
+
+    void limpiar() {
+        while (cabeza != nullptr) {
+            NodoMedico* temp = cabeza;
+            cabeza = cabeza->siguiente;
+            delete temp;
+        }
+    }
+
+    void insert_first(const EventoMedico& e) {
+        NodoMedico* nuevo = new NodoMedico(e);
+        nuevo->siguiente = cabeza;
+        cabeza = nuevo;
+    }
+
+    bool is_empty() const { return cabeza == nullptr; }
+
+    EventoMedico get_first() const {
+        if (cabeza) return cabeza->evento;
+        return EventoMedico(); 
     }
 };
 
 // ==========================================
-// 2. JERARQUÍA POO (Persona -> Jugador)
+// 3. CLASE BASE: PERSONA
 // ==========================================
 class Persona {
 protected:
-    std::string cedula_id; // Clave Hash O(1)
+    std::string cedula_id;
     std::string nombre;
-    int fecha_nacimiento;  // Clave AVL O(log n) formato AAAAMMDD
+    int fecha_nacimiento; 
 
 public:
-    Persona() : fecha_nacimiento(0) {}
-    Persona(const std::string& ced, const std::string& nom, int fecha)
-        : cedula_id(ced), nombre(nom), fecha_nacimiento(fecha) {}
-    virtual ~Persona() = default;
-
-    virtual std::string getRol() const = 0;
+    Persona(std::string id = "", std::string nom = "", int fecha_nac = 0)
+        : cedula_id(id), nombre(nom), fecha_nacimiento(fecha_nac) {}
+    virtual ~Persona() {} 
 };
 
+// ==========================================
+// 4. JUGADOR (Entidad Final y Nodo Hash)
+// ==========================================
 class Jugador : public Persona {
 private:
-    std::string id_equipo;
-    std::string categoria;
+    std::string posicion;
     int dorsal;
+    std::string categoria;
     bool solvente_pago;
     bool elegible_comet;
-    int fila_tactica;
-    int col_tactica;
-    std::list<EventoMedico> historial_medico; // Reemplazable por Designar::SLList
+    int goles;
+    int asistencias;
+    int minutos_jugados;
+    int asis_entrenamientos;
+    int total_entrenos;
 
 public:
-    Jugador(const std::string& ced, const std::string& nom, int fecha, const std::string& eq, const std::string& cat, int dor)
-        : Persona(ced, nom, fecha), id_equipo(eq), categoria(cat), dorsal(dor),
-          solvente_pago(true), elegible_comet(true), fila_tactica(-1), col_tactica(-1) {}
+    ListaMedica historial_medico; // Usamos nuestra lista segura
 
-    std::string getRol() const override { return "Jugador [" + categoria + "] Dorsal: " + std::to_string(dorsal); }
-    const std::string& getNombre() const { return nombre; }
+    Jugador(std::string id = "", std::string nom = "", int fecha_nac = 0, 
+            std::string pos = "", int dor = 0, std::string cat = "")
+        : Persona(id, nom, fecha_nac), posicion(pos), dorsal(dor), categoria(cat),
+          solvente_pago(true), elegible_comet(true), 
+          goles(0), asistencias(0), minutos_jugados(0), 
+          asis_entrenamientos(0), total_entrenos(0) {}
 
-    void registrarLesion(const EventoMedico& ev) { historial_medico.push_back(ev); }
-
-    bool estaAptoParaJugar() const {
-        if (!solvente_pago || !elegible_comet) return false;
-        if (historial_medico.empty()) return true;
-        return historial_medico.back().tieneAltaMedica();
+    std::string getCedula() const { return cedula_id; }
+    std::string getNombre() const { return nombre; }
+    
+    void registrarAsistencia(bool asistio) {
+        total_entrenos++;
+        if (asistio) asis_entrenamientos++;
+    }
+    
+    float getPorcentajeAsistencia() const {
+        if (total_entrenos == 0) return 100.0f; 
+        return (static_cast<float>(asis_entrenamientos) / total_entrenos) * 100.0f;
     }
 
-    bool operator<(const Jugador& otro) const {
-        if (this->fecha_nacimiento != otro.fecha_nacimiento) return this->fecha_nacimiento < otro.fecha_nacimiento;
-        return this->cedula_id < otro.cedula_id;
+    void suspenderPorPago() { solvente_pago = false; }
+    void registrarPago() { solvente_pago = true; }
+
+    bool esConvocable() {
+        if (!solvente_pago) return false;
+        if (!elegible_comet) return false;
+        
+        if (!historial_medico.is_empty()) {
+            EventoMedico ultimo_evento = historial_medico.get_first();
+            if (ultimo_evento.tipo == "Lesion" && !ultimo_evento.alta_medica) {
+                return false; 
+            }
+        }
+        return true;
+    }
+
+    void imprimirFicha() {
+        std::cout << "\n=========================================\n";
+        std::cout << "FICHA TECNICA: " << nombre << " [#" << dorsal << "]\n";
+        std::cout << "Categoria: " << categoria << " | Posicion: " << posicion << "\n";
+        std::cout << "-----------------------------------------\n";
+        std::cout << "Goles: " << goles << " | Asistencias: " << asistencias 
+                  << " | Minutos: " << minutos_jugados << "\n";
+        std::cout << "Asistencia a Entrenamientos: " << getPorcentajeAsistencia() << "%\n";
+        std::cout << "-----------------------------------------\n";
+        
+        std::cout << "ESTADO (Semaforo): ";
+        if (esConvocable()) {
+            std::cout << "[VERDE] - CONVOCABLE\n";
+        } else {
+            std::cout << "[ROJO] - NO CONVOCABLE\n";
+            if (!solvente_pago) std::cout << " -> Motivo: Insolvencia Administrativa.\n";
+            if (!historial_medico.is_empty() && !historial_medico.get_first().alta_medica) {
+                std::cout << " -> Motivo: Baja Medica (" << historial_medico.get_first().descripcion << ").\n";
+            }
+        }
+        std::cout << "=========================================\n";
     }
 };
 
-// ==========================================
-// 3. EQUIPO (Ordenamiento y Pizarra 2D)
-// ==========================================
-class Equipo {
-private:
-    std::string id_equipo;
-    std::string categoria;
-    int partidos_ganados;
-    int partidos_empatados;
-    int goles_favor;
-    int goles_contra;
-    int campo[11][7]; // Matriz táctica 2D
-
-public:
-    Equipo(const std::string& nombre_eq, const std::string& cat)
-        : id_equipo(nombre_eq), categoria(cat), partidos_ganados(0), partidos_empatados(0),
-          goles_favor(0), goles_contra(0) {
-        for (int i = 0; i < 11; ++i)
-            for (int j = 0; j < 7; ++j) campo[i][j] = 0;
-    }
-
-    int getPuntos() const { return (partidos_ganados * 3) + partidos_empatados; }
-    int getDiferencial() const { return goles_favor - goles_contra; }
-    const std::string& getIdEquipo() const { return id_equipo; }
-
-    static bool compararEquipos(const Equipo& a, const Equipo& b) {
-        if (a.getPuntos() != b.getPuntos()) return a.getPuntos() > b.getPuntos();
-        if (a.getDiferencial() != b.getDiferencial()) return a.getDiferencial() > b.getDiferencial();
-        return a.id_equipo < b.id_equipo;
-    }
-};
-
-#endif
+#endif // MODELS_H
